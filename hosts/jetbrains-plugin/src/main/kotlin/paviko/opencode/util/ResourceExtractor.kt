@@ -4,8 +4,11 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import java.io.File
 import java.io.InputStream
+import java.net.JarURLConnection
+import java.net.URLDecoder
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.jar.JarFile
 
 object ResourceExtractor {
     private const val STABLE_DIR = "opencode-bin"
@@ -112,6 +115,8 @@ object ResourceExtractor {
                 logger.warn("ResourceExtractor: failed setting executable flag for ${dest.absolutePath}, continuing", it)
             }
 
+            extractBundledWebgui(resourcePath, stableDir)
+
             // Best-effort cleanup of stale random temp dirs from previous versions
             cleanupStaleTempDirs()
 
@@ -119,6 +124,82 @@ object ResourceExtractor {
             logger.info("ResourceExtractor: extraction complete, cached path ${cached}")
             return cached
         }
+    }
+
+    private fun extractBundledWebgui(resourcePath: String, stableDir: File) {
+        val resourceDir = resourcePath.substringBeforeLast('/', "")
+        val webguiResourceDir = "$resourceDir/webgui-dist"
+        val webguiDest = File(stableDir, "webgui-dist")
+        val resources = listResourceFiles(webguiResourceDir, resourcePath)
+        if (resources.isEmpty()) {
+            logger.info("ResourceExtractor: no bundled webgui-dist found at $webguiResourceDir")
+            return
+        }
+
+        logger.info("ResourceExtractor: extracting ${resources.size} webgui files to ${webguiDest.absolutePath}")
+        for (resource in resources) {
+            val relative = resource.removePrefix("$webguiResourceDir/").replace('\\', '/')
+            if (relative.isBlank()) continue
+
+            val input = javaClass.classLoader.getResourceAsStream(resource)
+            if (input == null) {
+                logger.warn("ResourceExtractor: missing webgui resource $resource, skipping")
+                continue
+            }
+
+            runCatching {
+                input.use { src ->
+                    val target = File(webguiDest, relative)
+                    val parent = target.parentFile ?: webguiDest
+                    val parentCreated = parent.mkdirs()
+                    if (!parentCreated && !parent.exists()) {
+                        logger.warn("ResourceExtractor: could not create parent directory ${parent.absolutePath} for $relative")
+                        return@use
+                    }
+                    target.outputStream().use { out -> src.copyTo(out) }
+                }
+            }.onFailure {
+                logger.warn("ResourceExtractor: failed extracting webgui resource $resource", it)
+            }
+        }
+    }
+
+    private fun listResourceFiles(resourceDir: String, anchorResource: String): List<String> {
+        val normalizedDir = resourceDir.trim('/').replace('\\', '/')
+        val url = javaClass.classLoader.getResource(normalizedDir)
+        if (url != null) {
+            return when (url.protocol) {
+                "file" -> listFileResourceFiles(normalizedDir, File(URLDecoder.decode(url.path, "UTF-8")))
+                "jar" -> listJarResourceFiles(normalizedDir, (url.openConnection() as JarURLConnection).jarFile)
+                else -> emptyList()
+            }
+        }
+
+        val anchor = javaClass.classLoader.getResource(anchorResource) ?: return emptyList()
+        return when (anchor.protocol) {
+            "file" -> {
+                val dir = File(URLDecoder.decode(anchor.path, "UTF-8")).parentFile.resolve("webgui-dist")
+                listFileResourceFiles(normalizedDir, dir)
+            }
+            "jar" -> listJarResourceFiles(normalizedDir, (anchor.openConnection() as JarURLConnection).jarFile)
+            else -> emptyList()
+        }
+    }
+
+    private fun listFileResourceFiles(resourceDir: String, dir: File): List<String> {
+        if (!dir.exists()) return emptyList()
+        return dir.walkTopDown()
+            .filter { it.isFile }
+            .map { "$resourceDir/${it.relativeTo(dir).invariantSeparatorsPath}" }
+            .toList()
+    }
+
+    private fun listJarResourceFiles(resourceDir: String, jar: JarFile): List<String> {
+        val prefix = "$resourceDir/"
+        return jar.entries().asSequence()
+            .filter { !it.isDirectory && it.name.startsWith(prefix) }
+            .map { it.name }
+            .toList()
     }
 
     /**
