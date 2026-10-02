@@ -98,23 +98,42 @@ type MarkdownCodeProps = ComponentPropsWithoutRef<"code"> &
     inline?: boolean
   }
 
-const markdownComponents: Partial<Components> = {
-  // Headings with proper hierarchy
-  h1: ({ children }) => <h1 className={`text-2xl font-bold mb-2 mt-3 ${styles.text}`}>{children}</h1>,
-  h2: ({ children }) => <h2 className={`text-xl font-bold mb-1.5 mt-2.5 ${styles.text}`}>{children}</h2>,
-  h3: ({ children }) => <h3 className={`text-lg font-bold mb-1.5 mt-2 ${styles.text}`}>{children}</h3>,
-  h4: ({ children }) => <h4 className={`text-base font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h4>,
-  h5: ({ children }) => <h5 className={`text-sm font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h5>,
-  h6: ({ children }) => <h6 className={`text-xs font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h6>,
+const RTL_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/
 
-  // Lists with proper indentation
+function getTextContent(node: React.ReactNode): string {
+  if (typeof node === "string") return node
+  if (typeof node === "number") return String(node)
+  if (!node) return ""
+  if (Array.isArray(node)) return node.map(getTextContent).join("")
+  if (React.isValidElement(node) && node.props && (node.props as { children?: React.ReactNode }).children) {
+    return getTextContent((node.props as { children?: React.ReactNode }).children)
+  }
+  return ""
+}
+
+function getBidiProps(children: React.ReactNode) {
+  const text = getTextContent(children)
+  return RTL_REGEX.test(text) ? { dir: "rtl" as const, "data-rtl": "true" } : { dir: "auto" as const }
+}
+
+const markdownComponents: Partial<Components> = {
+  // Headings with proper hierarchy and BiDi direction
+  h1: ({ children }) => <h1 {...getBidiProps(children)} className={`text-2xl font-bold mb-2 mt-3 ${styles.text}`}>{children}</h1>,
+  h2: ({ children }) => <h2 {...getBidiProps(children)} className={`text-xl font-bold mb-1.5 mt-2.5 ${styles.text}`}>{children}</h2>,
+  h3: ({ children }) => <h3 {...getBidiProps(children)} className={`text-lg font-bold mb-1.5 mt-2 ${styles.text}`}>{children}</h3>,
+  h4: ({ children }) => <h4 {...getBidiProps(children)} className={`text-base font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h4>,
+  h5: ({ children }) => <h5 {...getBidiProps(children)} className={`text-sm font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h5>,
+  h6: ({ children }) => <h6 {...getBidiProps(children)} className={`text-xs font-bold mb-1 mt-1.5 ${styles.text}`}>{children}</h6>,
+
+  // Lists with proper indentation and BiDi direction
   ul: ({ children }) => <ul className={`list-disc list-inside mb-1.5 space-y-0.5 ${styles.text}`}>{children}</ul>,
   ol: ({ children }) => <ol className={`list-decimal list-inside mb-1.5 space-y-0.5 ${styles.text}`}>{children}</ol>,
-  li: ({ children }) => <li className={`ml-4 ${styles.text}`}>{children}</li>,
+  li: ({ children }) => <li {...getBidiProps(children)} className={`ml-4 ${styles.text}`}>{children}</li>,
 
-  // Blockquotes with left border
+  // Blockquotes with direction-aware border
   blockquote: ({ children }) => (
     <blockquote
+      {...getBidiProps(children)}
       className={`border-l-4 border-gray-300 dark:border-gray-600 pl-4 my-3 ${styles.bg} py-2 italic ${styles.textMuted}`}
     >
       {children}
@@ -137,17 +156,18 @@ const markdownComponents: Partial<Components> = {
     return <CodeBlock language={language} value={value} inline={isInline} />
   },
 
-  // Paragraphs
+  // Paragraphs with BiDi direction
   p: (props) => {
+    const bidiProps = getBidiProps(props.children)
     const nodeHasBlock = remarkNodeHasBlockChild(props.node)
     if (nodeHasBlock) {
-      return <div className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</div>
+      return <div {...bidiProps} className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</div>
     }
     const childHasBlock = hasBlockChild(props.children)
     if (childHasBlock) {
-      return <div className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</div>
+      return <div {...bidiProps} className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</div>
     }
-    return <p className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</p>
+    return <p {...bidiProps} className={`mb-1.5 ${styles.text} leading-relaxed`}>{props.children}</p>
   },
 
   // Links that open in new tab (via IDE bridge when in JCEF to avoid hangs)

@@ -119,3 +119,25 @@ body {
 .modern-icon-button {
   @apply p-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 transition-all duration-200;
 }
+
+/* BiDi / RTL markdown rendering support (Arabic, Hebrew, Persian, Urdu) */
+.markdown-content [dir="rtl"],
+.markdown-content [data-rtl="true"] {
+  text-align: right;
+  direction: rtl;
+}
+
+.markdown-content [dir="rtl"] blockquote,
+.markdown-content [data-rtl="true"] blockquote {
+  border-left-width: 0;
+  border-right-width: 4px;
+  padding-left: 0;
+  padding-right: 1rem;
+}
+
+.markdown-content code,
+.markdown-content pre {
+  unicode-bidi: isolate;
+  direction: ltr;
+  text-align: left;
+}
